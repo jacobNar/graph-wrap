@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "graph-wrap"
+dynamic = ["version"]
+description = "A wrapper for LangGraph agents that handles observability and guardrails"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph",
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary]"
+]
+
+[tool.hatch.version]
+path = "src/graph_wrap/__init__.py"
