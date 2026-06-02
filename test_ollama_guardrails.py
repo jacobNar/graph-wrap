@@ -88,7 +88,7 @@ async def test_hallucination_fallback() -> None:
         "context": "The sky is blue."
     }
     
-    res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "hallucination_fallback_test"}})
+    res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "jacobs_test"}})
     assert "I cannot answer that" in res["messages"][-1]
 
 async def test_async_hallucination_fallback() -> None:

@@ -82,13 +82,47 @@ def show_traces_tab(db_uri: str, thread_id: str) -> None:
     except Exception as e:
         st.error(f"Error querying traces: {e}")
 
+def draw_tabs(db_uri: str, thread_id: str) -> None:
+    tab_traces, tab_checkpoints = st.tabs(["Observability Traces", "State Checkpoints"])
+    with tab_traces:
+        show_traces_tab(db_uri, thread_id)
+    with tab_checkpoints:
+        show_checkpoints_tab(db_uri, thread_id)
+
+@st.fragment(run_every=5)
+def render_tabs_auto(db_uri: str, thread_id: str) -> None:
+    draw_tabs(db_uri, thread_id)
+
+@st.fragment
+def render_tabs_static(db_uri: str, thread_id: str) -> None:
+    draw_tabs(db_uri, thread_id)
+
 def main() -> None:
     st.set_page_config(page_title="graph-wrap Observability Console", layout="wide")
+    st.markdown(
+        """
+        <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stApp {
+            background-color: #ffffff !important;
+            color: #31333f !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #f0f2f6 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
     st.title("graph-wrap Observability Console")
     
     cli_uri = parse_args()
     db_uri = st.sidebar.text_input("Database URI", value=cli_uri or st.session_state.get("db_uri", ""))
     st.session_state["db_uri"] = db_uri
+    
+    auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
     
     if not db_uri:
         st.warning("Please enter a database connection URI in the sidebar.")
@@ -101,13 +135,10 @@ def main() -> None:
         
     thread_id = st.sidebar.selectbox("Select Thread ID", threads)
     
-    tab_traces, tab_checkpoints = st.tabs(["Observability Traces", "State Checkpoints"])
-    
-    with tab_traces:
-        show_traces_tab(db_uri, thread_id)
-        
-    with tab_checkpoints:
-        show_checkpoints_tab(db_uri, thread_id)
+    if auto_refresh:
+        render_tabs_auto(db_uri, thread_id)
+    else:
+        render_tabs_static(db_uri, thread_id)
 
 if __name__ == "__main__":
     main()

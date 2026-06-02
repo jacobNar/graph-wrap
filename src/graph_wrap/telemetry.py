@@ -134,6 +134,83 @@ class PostgresTelemetryHandler(AsyncCallbackHandler):
         }
         await self._insert_log("tool_end", payload)
 
+    async def on_llm_end(
+        self,
+        response: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        generations = [[{"text": g.text, "generation_info": g.generation_info, "type": type(g).__name__} for g in sublist] for sublist in response.generations]
+        payload = {
+            "generations": generations,
+            "llm_output": response.llm_output,
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        await self._insert_log("llm_end", payload)
+
+    async def on_chain_end(
+        self,
+        outputs: Dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "outputs": outputs,
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        await self._insert_log("chain_end", payload)
+
+    async def on_chain_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "error": str(error),
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        await self._insert_log("chain_error", payload)
+
+    async def on_llm_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "error": str(error),
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        await self._insert_log("llm_error", payload)
+
+    async def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "error": str(error),
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        await self._insert_log("tool_error", payload)
+
 class SyncPostgresTelemetryHandler(BaseCallbackHandler):
     def __init__(self, db_uri: str, thread_id: str) -> None:
         self.db_uri = db_uri
@@ -253,3 +330,80 @@ class SyncPostgresTelemetryHandler(BaseCallbackHandler):
             "parent_run_id": str(parent_run_id) if parent_run_id else None
         }
         self._insert_log("tool_end", payload)
+
+    def on_llm_end(
+        self,
+        response: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        generations = [[{"text": g.text, "generation_info": g.generation_info, "type": type(g).__name__} for g in sublist] for sublist in response.generations]
+        payload = {
+            "generations": generations,
+            "llm_output": response.llm_output,
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        self._insert_log("llm_end", payload)
+
+    def on_chain_end(
+        self,
+        outputs: Dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "outputs": outputs,
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        self._insert_log("chain_end", payload)
+
+    def on_chain_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "error": str(error),
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        self._insert_log("chain_error", payload)
+
+    def on_llm_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "error": str(error),
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        self._insert_log("llm_error", payload)
+
+    def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "error": str(error),
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None
+        }
+        self._insert_log("tool_error", payload)
