@@ -1,10 +1,11 @@
 import sys
 import asyncio
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Iterator, Optional
 import psycopg
 from langgraph.graph import StateGraph as BaseStateGraph
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from graph_wrap.telemetry import PostgresTelemetryHandler
+from graph_wrap.telemetry import PostgresTelemetryHandler, SyncPostgresTelemetryHandler
 
 if sys.platform == "win32":
     try:
@@ -28,19 +29,92 @@ class WrappedCompiledGraph:
         **kwargs: Any,
     ) -> Any:
         config = config or {}
-        configurable = config.get("configurable", {})
-        thread_id = configurable.get("thread_id", "default_thread")
+        new_config = dict(config)
+        configurable = dict(new_config.get("configurable", {}))
+        thread_id = configurable.get("thread_id") or "default_thread"
+        configurable["thread_id"] = thread_id
+        new_config["configurable"] = configurable
         
         async with AsyncPostgresSaver.from_conn_string(self.db_uri) as checkpointer:
             await checkpointer.setup()
             self._compiled_graph.checkpointer = checkpointer
             
-            new_config = dict(config)
             callbacks = list(new_config.get("callbacks", []))
             callbacks.append(PostgresTelemetryHandler(self.db_uri, thread_id))
             new_config["callbacks"] = callbacks
             
             return await self._compiled_graph.ainvoke(input, config=new_config, **kwargs)
+
+    async def astream(
+        self,
+        input: Any,
+        config: Optional[dict] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
+        config = config or {}
+        new_config = dict(config)
+        configurable = dict(new_config.get("configurable", {}))
+        thread_id = configurable.get("thread_id") or "default_thread"
+        configurable["thread_id"] = thread_id
+        new_config["configurable"] = configurable
+        
+        async with AsyncPostgresSaver.from_conn_string(self.db_uri) as checkpointer:
+            await checkpointer.setup()
+            self._compiled_graph.checkpointer = checkpointer
+            
+            callbacks = list(new_config.get("callbacks", []))
+            callbacks.append(PostgresTelemetryHandler(self.db_uri, thread_id))
+            new_config["callbacks"] = callbacks
+            
+            async for chunk in self._compiled_graph.astream(input, config=new_config, **kwargs):
+                yield chunk
+
+    def invoke(
+        self,
+        input: Any,
+        config: Optional[dict] = None,
+        **kwargs: Any,
+    ) -> Any:
+        config = config or {}
+        new_config = dict(config)
+        configurable = dict(new_config.get("configurable", {}))
+        thread_id = configurable.get("thread_id") or "default_thread"
+        configurable["thread_id"] = thread_id
+        new_config["configurable"] = configurable
+        
+        with PostgresSaver.from_conn_string(self.db_uri) as checkpointer:
+            checkpointer.setup()
+            self._compiled_graph.checkpointer = checkpointer
+            
+            callbacks = list(new_config.get("callbacks", []))
+            callbacks.append(SyncPostgresTelemetryHandler(self.db_uri, thread_id))
+            new_config["callbacks"] = callbacks
+            
+            return self._compiled_graph.invoke(input, config=new_config, **kwargs)
+
+    def stream(
+        self,
+        input: Any,
+        config: Optional[dict] = None,
+        **kwargs: Any,
+    ) -> Iterator[Any]:
+        config = config or {}
+        new_config = dict(config)
+        configurable = dict(new_config.get("configurable", {}))
+        thread_id = configurable.get("thread_id") or "default_thread"
+        configurable["thread_id"] = thread_id
+        new_config["configurable"] = configurable
+        
+        with PostgresSaver.from_conn_string(self.db_uri) as checkpointer:
+            checkpointer.setup()
+            self._compiled_graph.checkpointer = checkpointer
+            
+            callbacks = list(new_config.get("callbacks", []))
+            callbacks.append(SyncPostgresTelemetryHandler(self.db_uri, thread_id))
+            new_config["callbacks"] = callbacks
+            
+            for chunk in self._compiled_graph.stream(input, config=new_config, **kwargs):
+                yield chunk
 
 class StateGraph(BaseStateGraph):
     def __init__(
