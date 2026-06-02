@@ -14,5 +14,14 @@ dependencies = [
     "psycopg[binary]"
 ]
 
+[project.optional-dependencies]
+ui = [
+    "streamlit"
+]
+
+[project.scripts]
+graph-wrap-ui = "graph_wrap.cli:main"
+
+
 [tool.hatch.version]
 path = "src/graph_wrap/__init__.py"
