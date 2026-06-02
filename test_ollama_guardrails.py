@@ -113,6 +113,32 @@ async def test_async_hallucination_fallback() -> None:
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "async_hallucination_fallback_test"}})
     assert "I cannot answer that" in res["messages"][-1]
 
+async def test_selective_guardrails() -> None:
+    db_uri = "postgresql://postgres:postgres@127.0.0.1:5433/testdb"
+    config = {
+        "hallucinating_agent": GuardrailConfig(
+            outbound_provider=GuardrailProvider.OLLAMA,
+            eval_model="llama3.1:8b",
+            check_hallucination=True,
+            fallback_message="Tripped!"
+        )
+    }
+    graph = StateGraph(AgentState, db_uri=db_uri, guardrails=config)
+    graph.add_node("normal_agent", normal_node)
+    graph.add_node("hallucinating_agent", hallucinating_node)
+    graph.set_entry_point("normal_agent")
+    graph.add_edge("normal_agent", "hallucinating_agent")
+    graph.set_finish_point("hallucinating_agent")
+    compiled = graph.compile()
+    
+    state = {
+        "messages": ["Explain the weather."],
+        "context": "The sky is blue."
+    }
+    
+    res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "selective_guardrails_test"}})
+    assert "Tripped!" in res["messages"][-1]
+
 async def main() -> None:
     print("Running Prompt Injection Error raising test...")
     await test_prompt_injection_error()
@@ -122,6 +148,8 @@ async def main() -> None:
     await test_hallucination_fallback()
     print("Running Async Hallucination Fallback output test...")
     await test_async_hallucination_fallback()
+    print("Running Selective Guardrails test...")
+    await test_selective_guardrails()
     print("All tests completed successfully!")
 
 if __name__ == "__main__":
