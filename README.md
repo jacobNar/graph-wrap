@@ -98,6 +98,24 @@ workflow = StateGraph(
 )
 ```
 
+### Node-Specific Guardrails
+
+To apply guardrails to specific nodes only, pass a dictionary mapping node names to `GuardrailConfig` objects:
+
+```python
+workflow = StateGraph(
+    AgentState,
+    db_uri="postgresql://postgres:postgres@localhost:5432/my_database",
+    guardrails={
+        "Trader": GuardrailConfig(
+            outbound_provider=GuardrailProvider.OLLAMA,
+            eval_model="llama3.1:8b",
+            check_hallucination=True
+        )
+    }
+)
+```
+
 ### Config Options
 
 | Parameter | Type | Default | Description |

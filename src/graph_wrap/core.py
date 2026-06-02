@@ -145,11 +145,15 @@ class StateGraph(BaseStateGraph):
         **kwargs: Any,
     ) -> Any:
         from graph_wrap.guardrails import wrap_node_with_guardrails
+        node_guardrails = self.guardrails
+        if isinstance(self.guardrails, dict):
+            node_name = node if isinstance(node, str) else getattr(node, "__name__", None)
+            node_guardrails = self.guardrails.get(node_name)
         if isinstance(node, str):
             if action is not None:
-                action = wrap_node_with_guardrails(action, self.guardrails)
+                action = wrap_node_with_guardrails(action, node_guardrails)
         else:
-            node = wrap_node_with_guardrails(node, self.guardrails)
+            node = wrap_node_with_guardrails(node, node_guardrails)
         return super().add_node(node, action, **kwargs)
 
     def compile(self, *args: Any, **kwargs: Any) -> WrappedCompiledGraph:
