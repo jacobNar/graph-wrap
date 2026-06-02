@@ -61,3 +61,53 @@ Or run the command line executable:
 ```bash
 graph-wrap-ui --db-uri postgresql://postgres:postgres@localhost:5432/my_database
 ```
+
+---
+
+## Custom Guardrails
+
+`graph-wrap` provides custom inbound and outbound safety guardrails. Evaluations for prompt injection, content safety, and hallucination are performed using LangChain's native structured output bindings for Ollama and OpenAI. Local regex-based PII redaction runs locally with zero LLM costs.
+
+### Quick Example
+
+```python
+from typing_extensions import TypedDict
+from graph_wrap import StateGraph, GuardrailConfig, GuardrailProvider
+
+class AgentState(TypedDict):
+    messages: list[str]
+    context: str
+
+safety_config = GuardrailConfig(
+    inbound_provider=GuardrailProvider.OLLAMA,
+    safety_model="llama3.1:8b",
+    check_prompt_injection=True,
+    
+    outbound_provider=GuardrailProvider.OLLAMA,
+    eval_model="llama3.1:8b",
+    check_hallucination=True,
+    
+    redact_pii=True,
+    fallback_message="I cannot answer that, please try to rephrase your question."
+)
+
+workflow = StateGraph(
+    AgentState, 
+    db_uri="postgresql://postgres:postgres@localhost:5432/my_database",
+    guardrails=safety_config
+)
+```
+
+### Config Options
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `inbound_provider` | `GuardrailProvider` | `None` | Provider for inbound validation (`OLLAMA` or `OPENAI`). |
+| `safety_model` | `str` | `None` | Model name to use for inbound safety/prompt injection checks. |
+| `check_prompt_injection` | `bool` | `False` | Enable inbound prompt injection and jailbreak detection. |
+| `outbound_provider` | `GuardrailProvider` | `None` | Provider for outbound validation (`OLLAMA` or `OPENAI`). |
+| `eval_model` | `str` | `None` | Model name to use for outbound hallucination or safety checks. |
+| `check_hallucination` | `bool` | `False` | Enable outbound hallucination check comparing node outputs to graph context. |
+| `redact_pii` | `bool` | `False` | Enable local regex-based redaction of emails, credit cards, SSNs, and phone numbers. |
+| `fallback_message` | `Optional[str]` | `"I cannot answer..."` | The message returned when a guardrail is tripped. Set to `None` to raise a `GuardrailValidationError` instead. |
+

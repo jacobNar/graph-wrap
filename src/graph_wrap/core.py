@@ -138,6 +138,20 @@ class StateGraph(BaseStateGraph):
         self.db_uri = db_uri
         self.guardrails = guardrails
 
+    def add_node(
+        self,
+        node: Any,
+        action: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Any:
+        from graph_wrap.guardrails import wrap_node_with_guardrails
+        if isinstance(node, str):
+            if action is not None:
+                action = wrap_node_with_guardrails(action, self.guardrails)
+        else:
+            node = wrap_node_with_guardrails(node, self.guardrails)
+        return super().add_node(node, action, **kwargs)
+
     def compile(self, *args: Any, **kwargs: Any) -> WrappedCompiledGraph:
         kwargs.pop("checkpointer", None)
         with psycopg.connect(self.db_uri, autocommit=True) as conn:

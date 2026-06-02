@@ -74,6 +74,28 @@ class PostgresTelemetryHandler(AsyncCallbackHandler):
         }
         await self._insert_log("llm_start", payload)
 
+    async def on_chat_model_start(
+        self,
+        serialized: Dict[str, Any],
+        messages: List[List[Any]],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
+        flat_messages = [str(m) for sublist in messages for m in sublist]
+        payload = {
+            "serialized": serialized,
+            "messages": flat_messages,
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None,
+            "tags": tags,
+            "metadata": metadata
+        }
+        await self._insert_log("chat_model_start", payload)
+
     async def on_tool_start(
         self,
         serialized: Dict[str, Any],
@@ -171,6 +193,28 @@ class SyncPostgresTelemetryHandler(BaseCallbackHandler):
             "metadata": metadata
         }
         self._insert_log("llm_start", payload)
+
+    def on_chat_model_start(
+        self,
+        serialized: Dict[str, Any],
+        messages: List[List[Any]],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
+        flat_messages = [str(m) for sublist in messages for m in sublist]
+        payload = {
+            "serialized": serialized,
+            "messages": flat_messages,
+            "run_id": str(run_id),
+            "parent_run_id": str(parent_run_id) if parent_run_id else None,
+            "tags": tags,
+            "metadata": metadata
+        }
+        self._insert_log("chat_model_start", payload)
 
     def on_tool_start(
         self,
