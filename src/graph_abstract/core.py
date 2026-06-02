@@ -5,7 +5,7 @@ import psycopg
 from langgraph.graph import StateGraph as BaseStateGraph
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from graph_wrap.telemetry import PostgresTelemetryHandler, SyncPostgresTelemetryHandler
+from graph_abstract.telemetry import PostgresTelemetryHandler, SyncPostgresTelemetryHandler
 
 if sys.platform == "win32":
     try:
@@ -144,7 +144,7 @@ class StateGraph(BaseStateGraph):
         action: Optional[Any] = None,
         **kwargs: Any,
     ) -> Any:
-        from graph_wrap.guardrails import wrap_node_with_guardrails
+        from graph_abstract.guardrails import wrap_node_with_guardrails
         node_guardrails = self.guardrails
         if isinstance(self.guardrails, dict):
             node_name = node if isinstance(node, str) else getattr(node, "__name__", None)

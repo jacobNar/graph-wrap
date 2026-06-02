@@ -1,6 +1,6 @@
 import asyncio
 from typing_extensions import TypedDict
-from graph_wrap import StateGraph, GuardrailConfig, GuardrailProvider
+from graph_abstract import StateGraph, GuardrailConfig, GuardrailProvider
 
 class AgentState(TypedDict):
     messages: list[str]

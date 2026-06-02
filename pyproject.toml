@@ -39,11 +39,11 @@ Homepage = "https://github.com/jacobNar/graph-wrap"
 Issues = "https://github.com/jacobNar/graph-wrap/issues"
 
 [project.scripts]
-graph-abstract-ui = "graph_wrap.cli:main"
+graph-abstract-ui = "graph_abstract.cli:main"
 
 
 [tool.hatch.version]
-path = "src/graph_wrap/__init__.py"
+path = "src/graph_abstract/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/graph_wrap"]
+packages = ["src/graph_abstract"]

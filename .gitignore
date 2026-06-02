@@ -3,3 +3,5 @@ src/graph_wrap/__pycache__/
 .pypirc
 dist/
 .pypirc-test
+src/graph_abstract/__pycache__/
+__pycache__/test_graph_wrap.cpython-312.pyc

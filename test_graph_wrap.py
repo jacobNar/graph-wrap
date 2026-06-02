@@ -3,7 +3,7 @@ import sys
 from typing import Dict, Any
 from typing_extensions import TypedDict
 from langchain_core.tools import tool
-from graph_wrap import StateGraph
+from graph_abstract import StateGraph
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

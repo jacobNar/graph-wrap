@@ -3,7 +3,7 @@ import sys
 from typing import Dict, Any
 from typing_extensions import TypedDict
 from langchain_ollama import ChatOllama
-from graph_wrap import StateGraph, GuardrailConfig, GuardrailProvider, GuardrailValidationError
+from graph_abstract import StateGraph, GuardrailConfig, GuardrailProvider, GuardrailValidationError
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

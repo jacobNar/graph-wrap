@@ -29,7 +29,7 @@ class PostgresTelemetryHandler(AsyncCallbackHandler):
                         (self.thread_id, event_name, serialized_payload)
                     )
         except Exception as e:
-            with open("graph_wrap_errors.log", "a") as f:
+            with open("graph_abstract_errors.log", "a") as f:
                 f.write(f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} - Telemetry Error: {str(e)}\n")
 
     async def on_chain_start(
@@ -226,7 +226,7 @@ class SyncPostgresTelemetryHandler(BaseCallbackHandler):
                         (self.thread_id, event_name, serialized_payload)
                     )
         except Exception as e:
-            with open("graph_wrap_errors.log", "a") as f:
+            with open("graph_abstract_errors.log", "a") as f:
                 f.write(f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} - Telemetry Error (Sync): {str(e)}\n")
 
     def on_chain_start(

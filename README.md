@@ -22,12 +22,12 @@ pip install "graph-abstract[ui]"
 
 ## Quick Start
 
-Replace your standard LangGraph `StateGraph` import with `graph_wrap`:
+Replace your standard LangGraph `StateGraph` import with `graph_abstract`:
 
 ```python
 from typing import Dict, Any
 from typing_extensions import TypedDict
-from graph_wrap import StateGraph
+from graph_abstract import StateGraph
 
 class AgentState(TypedDict):
     messages: list[str]
@@ -54,7 +54,7 @@ If you installed `graph-abstract` with the `ui` extra, you can launch the consol
 
 Run the console via python:
 ```bash
-python -m graph_wrap --db-uri postgresql://postgres:postgres@localhost:5432/my_database
+python -m graph_abstract --db-uri postgresql://postgres:postgres@localhost:5432/my_database
 ```
 
 Or run the command line executable:
@@ -72,7 +72,7 @@ graph-abstract-ui --db-uri postgresql://postgres:postgres@localhost:5432/my_data
 
 ```python
 from typing_extensions import TypedDict
-from graph_wrap import StateGraph, GuardrailConfig, GuardrailProvider
+from graph_abstract import StateGraph, GuardrailConfig, GuardrailProvider
 
 class AgentState(TypedDict):
     messages: list[str]
