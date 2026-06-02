@@ -1,4 +1,4 @@
-# graph-wrap
+# graph-abstract
 
 A local-first Python library that provides zero-config PostgreSQL checkpointing and telemetry logging for LangGraph agents simply by replacing your standard `StateGraph` import.
 
@@ -9,13 +9,13 @@ A local-first Python library that provides zero-config PostgreSQL checkpointing 
 ### Core Observability and Checkpointing
 To install the core package with database checkpointing and telemetry logging:
 ```bash
-pip install graph-wrap
+pip install graph-abstract
 ```
 
 ### With Optional UI Console
 To install the package along with the Streamlit-based visualization console:
 ```bash
-pip install "graph-wrap[ui]"
+pip install "graph-abstract[ui]"
 ```
 
 ---
@@ -50,7 +50,7 @@ When you call `compiled.ainvoke`, the library dynamically setups Postgres checkp
 
 ## Observability UI Console
 
-If you installed `graph-wrap` with the `ui` extra, you can launch the console to inspect threads, visualize trace events, and view state checkpoints.
+If you installed `graph-abstract` with the `ui` extra, you can launch the console to inspect threads, visualize trace events, and view state checkpoints.
 
 Run the console via python:
 ```bash
@@ -59,14 +59,14 @@ python -m graph_wrap --db-uri postgresql://postgres:postgres@localhost:5432/my_d
 
 Or run the command line executable:
 ```bash
-graph-wrap-ui --db-uri postgresql://postgres:postgres@localhost:5432/my_database
+graph-abstract-ui --db-uri postgresql://postgres:postgres@localhost:5432/my_database
 ```
 
 ---
 
 ## Custom Guardrails
 
-`graph-wrap` provides custom inbound and outbound safety guardrails. Evaluations for prompt injection, content safety, and hallucination are performed using LangChain's native structured output bindings for Ollama and OpenAI. Local regex-based PII redaction runs locally with zero LLM costs.
+`graph-abstract` provides custom inbound and outbound safety guardrails. Evaluations for prompt injection, content safety, and hallucination are performed using LangChain's native structured output bindings for Ollama and OpenAI. Local regex-based PII redaction runs locally with zero LLM costs.
 
 ### Quick Example
 

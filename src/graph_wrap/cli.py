@@ -4,7 +4,7 @@ import sys
 import streamlit.web.cli as stcli
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Start the graph-wrap telemetry and checkpoint UI.")
+    parser = argparse.ArgumentParser(description="Start the graph-abstract telemetry and checkpoint UI.")
     parser.add_argument(
         "--db-uri",
         type=str,

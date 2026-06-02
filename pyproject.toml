@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "graph-wrap"
+name = "graph-abstract"
 dynamic = ["version"]
-description = "A wrapper for LangGraph agents that handles observability and guardrails"
+description = "A wrapper for LangGraph agents that handles observability, memory, and guardrails"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -39,8 +39,11 @@ Homepage = "https://github.com/jacobNar/graph-wrap"
 Issues = "https://github.com/jacobNar/graph-wrap/issues"
 
 [project.scripts]
-graph-wrap-ui = "graph_wrap.cli:main"
+graph-abstract-ui = "graph_wrap.cli:main"
 
 
 [tool.hatch.version]
 path = "src/graph_wrap/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/graph_wrap"]

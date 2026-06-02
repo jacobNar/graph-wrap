@@ -98,7 +98,7 @@ def render_tabs_static(db_uri: str, thread_id: str) -> None:
     draw_tabs(db_uri, thread_id)
 
 def main() -> None:
-    st.set_page_config(page_title="graph-wrap Observability Console", layout="wide")
+    st.set_page_config(page_title="graph-abstract Observability Console", layout="wide")
     st.markdown(
         """
         <style>
@@ -116,7 +116,7 @@ def main() -> None:
         """,
         unsafe_allow_html=True
     )
-    st.title("graph-wrap Observability Console")
+    st.title("graph-abstract Observability Console")
     
     cli_uri = parse_args()
     db_uri = st.sidebar.text_input("Database URI", value=cli_uri or st.session_state.get("db_uri", ""))
