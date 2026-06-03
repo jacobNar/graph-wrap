@@ -7,3 +7,5 @@ src/graph_abstract/__pycache__/
 __pycache__/
 /docs
 graph_abstract_errors.log
+publish.py
+publishing.md

@@ -35,8 +35,8 @@ ui = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jacobNar/graph-wrap"
-Issues = "https://github.com/jacobNar/graph-wrap/issues"
+Homepage = "https://github.com/jacobNar/graph-abstract"
+Issues = "https://github.com/jacobNar/graph-abstract/issues"
 
 [project.scripts]
 graph-abstract-ui = "graph_abstract.cli:main"
