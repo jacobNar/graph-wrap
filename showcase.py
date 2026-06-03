@@ -9,7 +9,7 @@ def simple_node(state: AgentState):
     return {"messages": ["Hello, World!"]}
 
 async def main():
-    db = "postgresql://postgres:postgres@localhost:5432/my_database"
+    db = "postgresql://postgres:postgres@localhost:5432/testdb"
     
     guardrails = GuardrailConfig(
         inbound_provider=GuardrailProvider.OLLAMA,

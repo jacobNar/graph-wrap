@@ -4,4 +4,6 @@ src/graph_wrap/__pycache__/
 dist/
 .pypirc-test
 src/graph_abstract/__pycache__/
-__pycache__/test_graph_wrap.cpython-312.pyc
+__pycache__/
+/docs
+graph_abstract_errors.log
