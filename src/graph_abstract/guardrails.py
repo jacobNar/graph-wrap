@@ -179,8 +179,25 @@ class GuardrailValidator:
         if not context or not context.strip() or not response_text or not response_text.strip():
             return
         messages = [
-            {"role": "system", "content": "You are a hallucination detector. You MUST respond ONLY with valid JSON containing exactly two fields: 'hallucination' (boolean) and 'reason' (string). No other fields allowed."},
-            {"role": "user", "content": f"Determine if the agent response is factually grounded in the context below, or introduces unsupported/hallucinated information.\n\nContext:\n{context}\n\nAgent Response:\n{response_text}"}
+            {
+                "role": "system",
+                "content": (
+                    "You are a hallucination detector. You MUST respond ONLY with a valid JSON object containing exactly two keys: "
+                    "'hallucination' (boolean) and 'reason' (string). Do not include any other fields, and do not repeat or copy "
+                    "the structure, keys, or contents of the agent response."
+                )
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Analyze the grounding of the agent response in the provided context.\n\n"
+                    f"<context>\n{context}\n</context>\n\n"
+                    f"<agent_response>\n{response_text}\n</agent_response>\n\n"
+                    "Determine if the agent response contains hallucinated, fabricated, or unsupported information "
+                    "not found in the context. Respond ONLY with a valid JSON object with the keys 'hallucination' (boolean) "
+                    "and 'reason' (string)."
+                )
+            }
         ]
         llm = self._get_llm(self.config.outbound_provider, self.config.eval_model)
         method = "json_mode" if self.config.outbound_provider == GuardrailProvider.OLLAMA else None
@@ -200,8 +217,25 @@ class GuardrailValidator:
         if not context or not context.strip() or not response_text or not response_text.strip():
             return
         messages = [
-            {"role": "system", "content": "You are a hallucination detector. You MUST respond ONLY with valid JSON containing exactly two fields: 'hallucination' (boolean) and 'reason' (string). No other fields allowed."},
-            {"role": "user", "content": f"Determine if the agent response is factually grounded in the context below, or introduces unsupported/hallucinated information.\n\nContext:\n{context}\n\nAgent Response:\n{response_text}"}
+            {
+                "role": "system",
+                "content": (
+                    "You are a hallucination detector. You MUST respond ONLY with a valid JSON object containing exactly two keys: "
+                    "'hallucination' (boolean) and 'reason' (string). Do not include any other fields, and do not repeat or copy "
+                    "the structure, keys, or contents of the agent response."
+                )
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Analyze the grounding of the agent response in the provided context.\n\n"
+                    f"<context>\n{context}\n</context>\n\n"
+                    f"<agent_response>\n{response_text}\n</agent_response>\n\n"
+                    "Determine if the agent response contains hallucinated, fabricated, or unsupported information "
+                    "not found in the context. Respond ONLY with a valid JSON object with the keys 'hallucination' (boolean) "
+                    "and 'reason' (string)."
+                )
+            }
         ]
         llm = self._get_llm(self.config.outbound_provider, self.config.eval_model)
         method = "json_mode" if self.config.outbound_provider == GuardrailProvider.OLLAMA else None

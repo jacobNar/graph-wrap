@@ -4,6 +4,8 @@ from typing import List, Set
 import streamlit as st
 import psycopg
 from langgraph.checkpoint.postgres import PostgresSaver
+from graph_abstract.trace_parser import TraceParser
+from graph_abstract.trace_visualizer import TraceVisualizer
 
 def parse_args() -> str:
     parser = argparse.ArgumentParser()
@@ -73,12 +75,68 @@ def show_traces_tab(db_uri: str, thread_id: str) -> None:
                 if not rows:
                     st.info("No traces found for this thread.")
                     return
+                
+                parser = TraceParser()
+                invocations = parser.parse_rows(rows)
+                visualizer = TraceVisualizer()
+                
+                for idx, invocation in enumerate(invocations):
+                    status_badge = "🟢 Success" if invocation.status == "success" else "🔴 Error"
+                    time_str = invocation.start_time.strftime("%Y-%m-%d %H:%M:%S") if invocation.start_time else "Unknown"
+                    duration_str = f"{invocation.duration_ms:.2f}ms"
                     
-                for name, payload, created_at in rows:
-                    time_str = created_at.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                    badge = f"[{name.upper()}]"
-                    with st.expander(f"{time_str} - {badge}"):
-                        st.json(payload)
+                    with st.expander(f"Invocation {len(invocations) - idx} (Start: {time_str})"):
+                        st.write(f"**Status:** {status_badge} | **Duration:** {duration_str}")
+                        html_content = visualizer.render_timeline_html(invocation)
+                        st.html(html_content)
+                        
+                        st.write("#### Inspect Spans")
+                        span_options = invocation.spans
+                        
+                        def format_span(span):
+                            indent = "\xa0\xa0" * span.depth
+                            status_sym = "🟢" if span.status == "success" else "🔴"
+                            return f"{indent}{status_sym} {span.name} ({span.duration_ms:.1f}ms)"
+                            
+                        selected_span = st.selectbox(
+                            "Select a span to inspect details",
+                            options=span_options,
+                            format_func=format_span,
+                            key=f"span_select_{thread_id}_{idx}"
+                        )
+                        
+                        if selected_span:
+                            st.write(f"### Span Details: {selected_span.name}")
+                            tab_overview, tab_inputs, tab_outputs, tab_raw = st.tabs(
+                                ["Overview", "Inputs", "Outputs", "Raw Payloads"]
+                            )
+                            
+                            with tab_overview:
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write(f"**Type:** {selected_span.type.upper()}")
+                                    st.write(f"**Status:** {selected_span.status.upper()}")
+                                    st.write(f"**Duration:** {selected_span.duration_ms:.2f}ms")
+                                with col2:
+                                    st.write(f"**Start Time:** {selected_span.start_time}")
+                                    st.write(f"**End Time:** {selected_span.end_time}")
+                                if selected_span.error:
+                                    st.error(f"Error: {selected_span.error}")
+                                    
+                            with tab_inputs:
+                                if selected_span.inputs is not None:
+                                    st.json(selected_span.inputs)
+                                else:
+                                    st.info("No input payload found for this span.")
+                                    
+                            with tab_outputs:
+                                if selected_span.outputs is not None:
+                                    st.json(selected_span.outputs)
+                                else:
+                                    st.info("No output payload found for this span.")
+                                    
+                            with tab_raw:
+                                st.json(selected_span.payloads)
     except Exception as e:
         st.error(f"Error querying traces: {e}")
 
