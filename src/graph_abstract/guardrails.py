@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable, RunnableLambda
+from langchain.agents.middleware import AgentMiddleware, hook_config
+
 
 class GuardrailProvider(str, Enum):
     OLLAMA = "ollama"
@@ -47,25 +49,6 @@ class GuardrailValidator:
             return ChatOpenAI(model=model or "gpt-4o-mini", temperature=0)
         raise GuardrailValidationError(f"Unsupported provider: {provider}")
 
-    def redact_text(self, text: str) -> str:
-        text = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "[EMAIL]", text)
-        text = re.sub(r"\b\+?\d{1,3}[-.\s]?\(?\d{2,3}\)?[-.\s]?\d{3,4}[-.\s]?\d{4}\b", "[PHONE]", text)
-        text = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "[SSN]", text)
-        text = re.sub(r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b", "[CREDIT_CARD]", text)
-        return text
-
-    def redact_state(self, state: Any) -> Any:
-        if isinstance(state, dict):
-            return {k: self.redact_state(v) for k, v in state.items()}
-        elif isinstance(state, list):
-            return [self.redact_state(v) for v in state]
-        elif isinstance(state, str):
-            return self.redact_text(state)
-        elif isinstance(state, BaseMessage):
-            if hasattr(state, "content") and isinstance(state.content, str):
-                state.content = self.redact_text(state.content)
-            return state
-        return state
 
     def get_text_from_state(self, state: Any) -> str:
         if isinstance(state, dict):
@@ -308,12 +291,101 @@ def make_fallback_response(state: Any, message: str) -> Any:
         return result
     return state
 
+class NodeRuntime:
+    def __init__(self) -> None:
+        self.context = {}
+
+class GuardrailsMiddleware(AgentMiddleware):
+    def __init__(self, config: GuardrailConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.validator = GuardrailValidator(config)
+
+    @property
+    def name(self) -> str:
+        return "GuardrailsMiddleware"
+
+    @hook_config(can_jump_to=["end"])
+    def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        state_text = self.validator.get_text_from_state(state)
+        if runtime and hasattr(runtime, "context"):
+            runtime.context["guardrail_context"] = state_text
+
+        try:
+            self.validator.check_safety_sync(state_text)
+            self.validator.check_prompt_injection_sync(state_text)
+        except GuardrailValidationError:
+            if self.config.fallback_message is not None:
+                fallback_state = make_fallback_response(state, self.config.fallback_message)
+                return {**fallback_state, "jump_to": "end"}
+            raise
+        return None
+
+    @hook_config(can_jump_to=["end"])
+    async def abefore_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        state_text = self.validator.get_text_from_state(state)
+        if runtime and hasattr(runtime, "context"):
+            runtime.context["guardrail_context"] = state_text
+
+        try:
+            await self.validator.check_safety_async(state_text)
+            await self.validator.check_prompt_injection_async(state_text)
+        except GuardrailValidationError:
+            if self.config.fallback_message is not None:
+                fallback_state = make_fallback_response(state, self.config.fallback_message)
+                return {**fallback_state, "jump_to": "end"}
+            raise
+        return None
+
+    @hook_config(can_jump_to=["end"])
+    def after_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        res_text = self.validator.get_text_from_state(state)
+        context = ""
+        if runtime and hasattr(runtime, "context"):
+            context = runtime.context.get("guardrail_context", "")
+
+        try:
+            self.validator.check_outbound_safety_sync(res_text)
+            self.validator.check_hallucination_sync(context, res_text)
+        except GuardrailValidationError:
+            if self.config.fallback_message is not None:
+                fallback_state = make_fallback_response(state, self.config.fallback_message)
+                return {**fallback_state, "jump_to": "end"}
+            raise
+        return None
+
+    @hook_config(can_jump_to=["end"])
+    async def aafter_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        res_text = self.validator.get_text_from_state(state)
+        context = ""
+        if runtime and hasattr(runtime, "context"):
+            context = runtime.context.get("guardrail_context", "")
+
+        try:
+            await self.validator.check_outbound_safety_async(res_text)
+            await self.validator.check_hallucination_async(context, res_text)
+        except GuardrailValidationError:
+            if self.config.fallback_message is not None:
+                fallback_state = make_fallback_response(state, self.config.fallback_message)
+                return {**fallback_state, "jump_to": "end"}
+            raise
+        return None
+
 def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) -> Any:
     if not config:
         return action
 
-    validator = GuardrailValidator(config)
-    orig_action = action
+    from langchain.agents.middleware import PIIMiddleware
+
+    middlewares = []
+    if config.redact_pii:
+        middlewares.append(PIIMiddleware("email", strategy="redact", apply_to_input=True, apply_to_output=True))
+        middlewares.append(PIIMiddleware("phone", strategy="redact", apply_to_input=True, apply_to_output=True))
+        middlewares.append(PIIMiddleware("ssn", strategy="redact", apply_to_input=True, apply_to_output=True))
+        middlewares.append(PIIMiddleware("credit_card", strategy="redact", apply_to_input=True, apply_to_output=True))
+
+    middlewares.append(GuardrailsMiddleware(config))
+
     is_runnable = isinstance(action, Runnable)
 
     def _should_pass_config(func: Any) -> bool:
@@ -334,98 +406,84 @@ def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) ->
 
     if inspect.iscoroutinefunction(action) or (hasattr(action, "ainvoke") and not inspect.iscoroutinefunction(action)):
         async def async_wrapper(state: Any, run_config: Any = None) -> Any:
-            state_text = validator.get_text_from_state(state)
-            
-            if config.redact_pii:
-                state = validator.redact_state(state)
-                state_text = validator.redact_text(state_text)
-                
-            try:
-                await validator.check_safety_async(state_text)
-                await validator.check_prompt_injection_async(state_text)
-            except GuardrailValidationError as e:
-                if config.fallback_message is not None:
-                    return make_fallback_response(state, config.fallback_message)
-                raise
-                
-            if is_runnable:
-                res = await orig_action.ainvoke(state, run_config)
-            else:
-                if inspect.iscoroutinefunction(orig_action):
-                    if _should_pass_config(orig_action):
-                        res = await orig_action(state, run_config)
-                    else:
-                        res = await orig_action(state)
-                else:
-                    if _should_pass_config(orig_action):
-                        res = await asyncio.to_thread(orig_action, state, run_config)
-                    else:
-                        res = await asyncio.to_thread(orig_action, state)
-                    
-            res_text = validator.get_text_from_state(res)
-            
-            if config.redact_pii:
-                res = validator.redact_state(res)
-                res_text = validator.redact_text(res_text)
-                
-            try:
-                await validator.check_outbound_safety_async(res_text)
-                await validator.check_hallucination_async(state_text, res_text)
-            except GuardrailValidationError as e:
-                if config.fallback_message is not None:
-                    return make_fallback_response(res, config.fallback_message)
-                raise
-                
-            return res
+            runtime = NodeRuntime()
+            current_state = state
 
-        if hasattr(orig_action, "__name__"):
-            async_wrapper.__name__ = orig_action.__name__
-        if hasattr(orig_action, "__qualname__"):
-            async_wrapper.__qualname__ = orig_action.__qualname__
+            for m in middlewares:
+                res = await m.abefore_model(current_state, runtime)
+                if res is not None:
+                    current_state = {**current_state, **{k: v for k, v in res.items() if k != "jump_to"}}
+                    if res.get("jump_to") == "end":
+                        return current_state
+
+            if is_runnable:
+                action_res = await action.ainvoke(current_state, run_config)
+            else:
+                if inspect.iscoroutinefunction(action):
+                    if _should_pass_config(action):
+                        action_res = await action(current_state, run_config)
+                    else:
+                        action_res = await action(current_state)
+                else:
+                    if _should_pass_config(action):
+                        action_res = await asyncio.to_thread(action, current_state, run_config)
+                    else:
+                        action_res = await asyncio.to_thread(action, current_state)
+
+            merged_state = {**current_state, **action_res}
+            final_res = action_res
+
+            for m in reversed(middlewares):
+                res = await m.aafter_model(merged_state, runtime)
+                if res is not None:
+                    merged_state = {**merged_state, **{k: v for k, v in res.items() if k != "jump_to"}}
+                    final_res = {**final_res, **{k: v for k, v in res.items() if k != "jump_to"}}
+                    if res.get("jump_to") == "end":
+                        return final_res
+
+            return final_res
+
+        if hasattr(action, "__name__"):
+            async_wrapper.__name__ = action.__name__
+        if hasattr(action, "__qualname__"):
+            async_wrapper.__qualname__ = action.__qualname__
         return RunnableLambda(async_wrapper) if is_runnable else async_wrapper
 
     else:
         def sync_wrapper(state: Any, run_config: Any = None) -> Any:
-            state_text = validator.get_text_from_state(state)
-            
-            if config.redact_pii:
-                state = validator.redact_state(state)
-                state_text = validator.redact_text(state_text)
-                
-            try:
-                validator.check_safety_sync(state_text)
-                validator.check_prompt_injection_sync(state_text)
-            except GuardrailValidationError as e:
-                if config.fallback_message is not None:
-                    return make_fallback_response(state, config.fallback_message)
-                raise
-                
-            if is_runnable:
-                res = orig_action.invoke(state, run_config)
-            else:
-                if _should_pass_config(orig_action):
-                    res = orig_action(state, run_config)
-                else:
-                    res = orig_action(state)
-                
-            res_text = validator.get_text_from_state(res)
-            
-            if config.redact_pii:
-                res = validator.redact_state(res)
-                res_text = validator.redact_text(res_text)
-                
-            try:
-                validator.check_outbound_safety_sync(res_text)
-                validator.check_hallucination_sync(state_text, res_text)
-            except GuardrailValidationError as e:
-                if config.fallback_message is not None:
-                    return make_fallback_response(res, config.fallback_message)
-                raise
-                
-            return res
+            runtime = NodeRuntime()
+            current_state = state
 
-        if hasattr(orig_action, "__name__"):
-            sync_wrapper.__name__ = orig_action.__name__
-        if hasattr(orig_action, "__qualname__"):
-            sync_wrapper.__qualname__ = orig_action.__qualname__
+            for m in middlewares:
+                res = m.before_model(current_state, runtime)
+                if res is not None:
+                    current_state = {**current_state, **{k: v for k, v in res.items() if k != "jump_to"}}
+                    if res.get("jump_to") == "end":
+                        return current_state
+
+            if is_runnable:
+                action_res = action.invoke(current_state, run_config)
+            else:
+                if _should_pass_config(action):
+                    action_res = action(current_state, run_config)
+                else:
+                    action_res = action(current_state)
+
+            merged_state = {**current_state, **action_res}
+            final_res = action_res
+
+            for m in reversed(middlewares):
+                res = m.after_model(merged_state, runtime)
+                if res is not None:
+                    merged_state = {**merged_state, **{k: v for k, v in res.items() if k != "jump_to"}}
+                    final_res = {**final_res, **{k: v for k, v in res.items() if k != "jump_to"}}
+                    if res.get("jump_to") == "end":
+                        return final_res
+
+            return final_res
+
+        if hasattr(action, "__name__"):
+            sync_wrapper.__name__ = action.__name__
+        if hasattr(action, "__qualname__"):
+            sync_wrapper.__qualname__ = action.__qualname__
         return RunnableLambda(sync_wrapper) if is_runnable else sync_wrapper
