@@ -30,9 +30,12 @@ class MockConnection:
         pass
 
 class MockPostgresSaver(MemorySaver):
+    _instance = None
     @classmethod
     def from_conn_string(cls, conn_string, **kwargs):
-        return cls()
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -41,9 +44,12 @@ class MockPostgresSaver(MemorySaver):
         pass
 
 class MockAsyncPostgresSaver(MemorySaver):
+    _instance = None
     @classmethod
     def from_conn_string(cls, conn_string, **kwargs):
-        return cls()
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
     async def __aenter__(self):
         return self
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -78,6 +84,8 @@ class MockLLM:
 
 @pytest.fixture(autouse=True)
 def mock_db():
+    MockPostgresSaver._instance = None
+    MockAsyncPostgresSaver._instance = None
     async def mock_async_connect(*args, **kwargs):
         return MockConnection()
     with patch("psycopg.connect", return_value=MockConnection()), \
@@ -92,5 +100,9 @@ def mock_llms():
     def create_mock_llm(*args, **kwargs):
         return MockLLM(registry)
     with patch("langchain_ollama.ChatOllama", side_effect=create_mock_llm), \
-         patch("langchain_openai.ChatOpenAI", side_effect=create_mock_llm):
+         patch("langchain_openai.ChatOpenAI", side_effect=create_mock_llm), \
+         patch("graph_abstract.guardrails.ChatOllama", side_effect=create_mock_llm, create=True), \
+         patch("graph_abstract.guardrails.ChatOpenAI", side_effect=create_mock_llm, create=True):
         yield registry
+
+

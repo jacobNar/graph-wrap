@@ -1,14 +1,22 @@
 import asyncio
 import inspect
 import re
+import contextvars
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableLambda
 from langchain.agents.middleware import AgentMiddleware, hook_config
+from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
+from langchain.agents.middleware import PIIMiddleware
+from langgraph.types import Command
+from langgraph.graph import END
+from graph_abstract.hitl import HITLMiddleware
 
+current_config_var = contextvars.ContextVar("current_config", default=None)
 
 class GuardrailProvider(str, Enum):
     OLLAMA = "ollama"
@@ -24,6 +32,7 @@ class GuardrailConfig:
     check_hallucination: bool = False
     redact_pii: bool = False
     fallback_message: Optional[str] = "I cannot answer that, please try to rephrase your question."
+    system_context: Optional[str] = None
 
 class GuardrailValidationError(ValueError):
     pass
@@ -42,13 +51,10 @@ class GuardrailValidator:
 
     def _get_llm(self, provider: GuardrailProvider, model: Optional[str]) -> Any:
         if provider == GuardrailProvider.OLLAMA:
-            from langchain_ollama import ChatOllama
             return ChatOllama(model=model, base_url="http://127.0.0.1:11434", temperature=0)
         elif provider == GuardrailProvider.OPENAI:
-            from langchain_openai import ChatOpenAI
             return ChatOpenAI(model=model or "gpt-4o-mini", temperature=0)
         raise GuardrailValidationError(f"Unsupported provider: {provider}")
-
 
     def get_text_from_state(self, state: Any) -> str:
         if isinstance(state, dict):
@@ -159,7 +165,10 @@ class GuardrailValidator:
     def check_hallucination_sync(self, context: str, response_text: str) -> None:
         if not self.config.outbound_provider or not self.config.check_hallucination:
             return
-        if not context or not context.strip() or not response_text or not response_text.strip():
+        full_context = context
+        if self.config.system_context:
+            full_context = f"System Context / Agent Capabilities / Allowed Tools:\n{self.config.system_context}\n\nConversation State:\n{context}"
+        if not full_context or not full_context.strip() or not response_text or not response_text.strip():
             return
         messages = [
             {
@@ -174,10 +183,11 @@ class GuardrailValidator:
                 "role": "user",
                 "content": (
                     "Analyze the grounding of the agent response in the provided context.\n\n"
-                    f"<context>\n{context}\n</context>\n\n"
+                    f"<context>\n{full_context}\n</context>\n\n"
                     f"<agent_response>\n{response_text}\n</agent_response>\n\n"
-                    "Determine if the agent response contains hallucinated, fabricated, or unsupported information "
-                    "not found in the context. Respond ONLY with a valid JSON object with the keys 'hallucination' (boolean) "
+                    "Determine if the agent response contains factual claims or information that contradict or are completely unsupported by the context. "
+                    "Do NOT flag conversational filler, greetings, helper phrases, code implementations, or formatting changes as hallucinations. "
+                    "Conversational replies and greetings are safe. Respond ONLY with a valid JSON object with the keys 'hallucination' (boolean) "
                     "and 'reason' (string)."
                 )
             }
@@ -197,7 +207,10 @@ class GuardrailValidator:
     async def check_hallucination_async(self, context: str, response_text: str) -> None:
         if not self.config.outbound_provider or not self.config.check_hallucination:
             return
-        if not context or not context.strip() or not response_text or not response_text.strip():
+        full_context = context
+        if self.config.system_context:
+            full_context = f"System Context / Agent Capabilities / Allowed Tools:\n{self.config.system_context}\n\nConversation State:\n{context}"
+        if not full_context or not full_context.strip() or not response_text or not response_text.strip():
             return
         messages = [
             {
@@ -212,10 +225,11 @@ class GuardrailValidator:
                 "role": "user",
                 "content": (
                     "Analyze the grounding of the agent response in the provided context.\n\n"
-                    f"<context>\n{context}\n</context>\n\n"
+                    f"<context>\n{full_context}\n</context>\n\n"
                     f"<agent_response>\n{response_text}\n</agent_response>\n\n"
-                    "Determine if the agent response contains hallucinated, fabricated, or unsupported information "
-                    "not found in the context. Respond ONLY with a valid JSON object with the keys 'hallucination' (boolean) "
+                    "Determine if the agent response contains factual claims or information that contradict or are completely unsupported by the context. "
+                    "Do NOT flag conversational filler, greetings, helper phrases, code implementations, or formatting changes as hallucinations. "
+                    "Conversational replies and greetings are safe. Respond ONLY with a valid JSON object with the keys 'hallucination' (boolean) "
                     "and 'reason' (string)."
                 )
             }
@@ -277,18 +291,17 @@ class GuardrailValidator:
             raise GuardrailValidationError(f"Safety check model error: {e}")
 
 def make_fallback_response(state: Any, message: str) -> Any:
-    from langchain_core.messages import AIMessage
     if isinstance(state, dict):
-        result = dict(state)
-        if "messages" in result:
-            msgs = result["messages"]
+        updates = {}
+        if "messages" in state:
+            msgs = state["messages"]
             if msgs and hasattr(msgs[0], "content"):
-                result["messages"] = [AIMessage(content=message)]
+                updates["messages"] = [AIMessage(content=message)]
             else:
-                result["messages"] = [message]
+                updates["messages"] = [message]
         else:
-            result["error"] = message
-        return result
+            updates["error"] = message
+        return updates
     return state
 
 class NodeRuntime:
@@ -305,15 +318,71 @@ class GuardrailsMiddleware(AgentMiddleware):
     def name(self) -> str:
         return "GuardrailsMiddleware"
 
+    def _should_check_input(self, state: Any) -> bool:
+        if isinstance(state, dict) and "messages" in state:
+            msgs = state["messages"]
+            if msgs:
+                last_msg = msgs[-1]
+                if isinstance(last_msg, str):
+                    return True
+                if hasattr(last_msg, "type") and last_msg.type == "human":
+                    return True
+                if type(last_msg).__name__ == "HumanMessage":
+                    return True
+                return False
+        return True
+
+    def _get_latest_input_text(self, state: Any) -> str:
+        if isinstance(state, dict) and "messages" in state:
+            msgs = state["messages"]
+            if msgs:
+                last_msg = msgs[-1]
+                if isinstance(last_msg, str):
+                    return last_msg
+                for msg in reversed(msgs):
+                    if hasattr(msg, "type") and msg.type == "human":
+                        return getattr(msg, "content", str(msg))
+                    if type(msg).__name__ == "HumanMessage":
+                        return getattr(msg, "content", str(msg))
+        return self.validator.get_text_from_state(state)
+
+    def _get_new_response_text(self, state: Any) -> str:
+        if isinstance(state, dict) and "messages" in state:
+            msgs = state["messages"]
+            for msg in reversed(msgs):
+                if isinstance(msg, str):
+                    return msg
+                if hasattr(msg, "type") and msg.type == "ai":
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        return ""
+                    return getattr(msg, "content", str(msg))
+                if type(msg).__name__ == "AIMessage":
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        return ""
+                    return getattr(msg, "content", str(msg))
+        return ""
+
     @hook_config(can_jump_to=["end"])
     def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         state_text = self.validator.get_text_from_state(state)
         if runtime and hasattr(runtime, "context"):
             runtime.context["guardrail_context"] = state_text
 
+        config = current_config_var.get()
+        already_checked = False
+        if isinstance(config, dict) and "configurable" in config:
+            if config["configurable"].get("inbound_checked"):
+                already_checked = True
+
+        if not self._should_check_input(state) or already_checked:
+            return None
+
+        input_text = self._get_latest_input_text(state)
         try:
-            self.validator.check_safety_sync(state_text)
-            self.validator.check_prompt_injection_sync(state_text)
+            self.validator.check_safety_sync(input_text)
+            self.validator.check_prompt_injection_sync(input_text)
+            if isinstance(config, dict) and "configurable" in config:
+                config["configurable"]["inbound_checked"] = True
         except GuardrailValidationError:
             if self.config.fallback_message is not None:
                 fallback_state = make_fallback_response(state, self.config.fallback_message)
@@ -327,9 +396,23 @@ class GuardrailsMiddleware(AgentMiddleware):
         if runtime and hasattr(runtime, "context"):
             runtime.context["guardrail_context"] = state_text
 
+        config = current_config_var.get()
+        already_checked = False
+        if isinstance(config, dict) and "configurable" in config:
+            if config["configurable"].get("inbound_checked"):
+                already_checked = True
+
+        if not self._should_check_input(state) or already_checked:
+            return None
+
+        input_text = self._get_latest_input_text(state)
         try:
-            await self.validator.check_safety_async(state_text)
-            await self.validator.check_prompt_injection_async(state_text)
+            await asyncio.gather(
+                self.validator.check_safety_async(input_text),
+                self.validator.check_prompt_injection_async(input_text)
+            )
+            if isinstance(config, dict) and "configurable" in config:
+                config["configurable"]["inbound_checked"] = True
         except GuardrailValidationError:
             if self.config.fallback_message is not None:
                 fallback_state = make_fallback_response(state, self.config.fallback_message)
@@ -339,7 +422,10 @@ class GuardrailsMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["end"])
     def after_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
-        res_text = self.validator.get_text_from_state(state)
+        res_text = self._get_new_response_text(state)
+        if not res_text or not res_text.strip():
+            return None
+
         context = ""
         if runtime and hasattr(runtime, "context"):
             context = runtime.context.get("guardrail_context", "")
@@ -356,14 +442,19 @@ class GuardrailsMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def aafter_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
-        res_text = self.validator.get_text_from_state(state)
+        res_text = self._get_new_response_text(state)
+        if not res_text or not res_text.strip():
+            return None
+
         context = ""
         if runtime and hasattr(runtime, "context"):
             context = runtime.context.get("guardrail_context", "")
 
         try:
-            await self.validator.check_outbound_safety_async(res_text)
-            await self.validator.check_hallucination_async(context, res_text)
+            await asyncio.gather(
+                self.validator.check_outbound_safety_async(res_text),
+                self.validator.check_hallucination_async(context, res_text)
+            )
         except GuardrailValidationError:
             if self.config.fallback_message is not None:
                 fallback_state = make_fallback_response(state, self.config.fallback_message)
@@ -371,20 +462,27 @@ class GuardrailsMiddleware(AgentMiddleware):
             raise
         return None
 
-def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) -> Any:
-    if not config:
+def wrap_node_with_guardrails(
+    action: Any,
+    config: Optional[GuardrailConfig],
+    hitl: bool = False,
+    interrupt_on: Any = None
+) -> Any:
+    if not config and not hitl:
         return action
 
-    from langchain.agents.middleware import PIIMiddleware
-
     middlewares = []
-    if config.redact_pii:
-        middlewares.append(PIIMiddleware("email", strategy="redact", apply_to_input=True, apply_to_output=True))
-        middlewares.append(PIIMiddleware("phone", strategy="redact", apply_to_input=True, apply_to_output=True))
-        middlewares.append(PIIMiddleware("ssn", strategy="redact", apply_to_input=True, apply_to_output=True))
-        middlewares.append(PIIMiddleware("credit_card", strategy="redact", apply_to_input=True, apply_to_output=True))
+    if config:
+        if config.redact_pii:
+            middlewares.append(PIIMiddleware("email", strategy="redact", apply_to_input=True, apply_to_output=True))
+            middlewares.append(PIIMiddleware("credit_card", strategy="redact", apply_to_input=True, apply_to_output=True))
+            middlewares.append(PIIMiddleware("ip", strategy="redact", apply_to_input=True, apply_to_output=True))
+            middlewares.append(PIIMiddleware("mac_address", strategy="redact", apply_to_input=True, apply_to_output=True))
+            middlewares.append(PIIMiddleware("url", strategy="redact", apply_to_input=True, apply_to_output=True))
+        middlewares.append(GuardrailsMiddleware(config))
 
-    middlewares.append(GuardrailsMiddleware(config))
+    if hitl:
+        middlewares.append(HITLMiddleware(interrupt_on))
 
     is_runnable = isinstance(action, Runnable)
 
@@ -414,7 +512,9 @@ def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) ->
                 if res is not None:
                     current_state = {**current_state, **{k: v for k, v in res.items() if k != "jump_to"}}
                     if res.get("jump_to") == "end":
-                        return current_state
+                        return Command(goto=END, update={k: v for k, v in res.items() if k != "jump_to"})
+                    elif res.get("jump_to"):
+                        return Command(goto=res["jump_to"], update={k: v for k, v in res.items() if k != "jump_to"})
 
             if is_runnable:
                 action_res = await action.ainvoke(current_state, run_config)
@@ -439,7 +539,9 @@ def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) ->
                     merged_state = {**merged_state, **{k: v for k, v in res.items() if k != "jump_to"}}
                     final_res = {**final_res, **{k: v for k, v in res.items() if k != "jump_to"}}
                     if res.get("jump_to") == "end":
-                        return final_res
+                        return Command(goto=END, update=final_res)
+                    elif res.get("jump_to"):
+                        return Command(goto=res["jump_to"], update=final_res)
 
             return final_res
 
@@ -459,7 +561,9 @@ def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) ->
                 if res is not None:
                     current_state = {**current_state, **{k: v for k, v in res.items() if k != "jump_to"}}
                     if res.get("jump_to") == "end":
-                        return current_state
+                        return Command(goto=END, update={k: v for k, v in res.items() if k != "jump_to"})
+                    elif res.get("jump_to"):
+                        return Command(goto=res["jump_to"], update={k: v for k, v in res.items() if k != "jump_to"})
 
             if is_runnable:
                 action_res = action.invoke(current_state, run_config)
@@ -478,7 +582,9 @@ def wrap_node_with_guardrails(action: Any, config: Optional[GuardrailConfig]) ->
                     merged_state = {**merged_state, **{k: v for k, v in res.items() if k != "jump_to"}}
                     final_res = {**final_res, **{k: v for k, v in res.items() if k != "jump_to"}}
                     if res.get("jump_to") == "end":
-                        return final_res
+                        return Command(goto=END, update=final_res)
+                    elif res.get("jump_to"):
+                        return Command(goto=res["jump_to"], update=final_res)
 
             return final_res
 

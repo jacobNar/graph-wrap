@@ -1,23 +1,25 @@
 import pytest
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Annotated
 from typing_extensions import TypedDict
+from langgraph.graph.message import add_messages
 from graph_abstract import StateGraph, GuardrailConfig, GuardrailProvider, GuardrailValidationError
 from graph_abstract.guardrails import SafetyCheckResult, HallucinationCheckResult
+from langchain_core.messages import AIMessage
 
 class AgentState(TypedDict):
-    messages: list[str]
+    messages: Annotated[list, add_messages]
     context: str
 
 def normal_node(state: AgentState) -> Dict[str, Any]:
-    return {"messages": ["The sky is blue."]}
+    return {"messages": [AIMessage(content="The sky is blue.")]}
 
 def hallucinating_node(state: AgentState) -> Dict[str, Any]:
-    return {"messages": ["France has raised taxes on cheese by 50%."]}
+    return {"messages": [AIMessage(content="France has raised taxes on cheese by 50%.")]}
 
 async def async_hallucinating_node(state: AgentState) -> Dict[str, Any]:
     await asyncio.sleep(0.01)
-    return {"messages": ["France has raised taxes on cheese by 50%."]}
+    return {"messages": [AIMessage(content="France has raised taxes on cheese by 50%.")]}
 
 @pytest.mark.asyncio
 async def test_prompt_injection_error(mock_llms):
@@ -61,7 +63,7 @@ async def test_prompt_injection_fallback(mock_llms):
         "context": "The sky is blue."
     }
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "test_thread"}})
-    assert "I cannot answer that." in res["messages"][-1]
+    assert "I cannot answer that." in getattr(res["messages"][-1], "content", res["messages"][-1])
 
 @pytest.mark.asyncio
 async def test_hallucination_fallback(mock_llms):
@@ -83,7 +85,7 @@ async def test_hallucination_fallback(mock_llms):
         "context": "No details available."
     }
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "test_thread"}})
-    assert "I cannot answer that." in res["messages"][-1]
+    assert "I cannot answer that." in getattr(res["messages"][-1], "content", res["messages"][-1])
 
 @pytest.mark.asyncio
 async def test_async_hallucination_fallback(mock_llms):
@@ -105,7 +107,7 @@ async def test_async_hallucination_fallback(mock_llms):
         "context": "No details available."
     }
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "test_thread"}})
-    assert "I cannot answer that." in res["messages"][-1]
+    assert "I cannot answer that." in getattr(res["messages"][-1], "content", res["messages"][-1])
 
 @pytest.mark.asyncio
 async def test_selective_guardrails(mock_llms):
@@ -131,7 +133,7 @@ async def test_selective_guardrails(mock_llms):
         "context": "Standard context"
     }
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "test_thread"}})
-    assert "Tripped!" in res["messages"][-1]
+    assert "Tripped!" in getattr(res["messages"][-1], "content", res["messages"][-1])
 
 @pytest.mark.asyncio
 async def test_openai_provider_guardrails(mock_llms):
@@ -153,7 +155,7 @@ async def test_openai_provider_guardrails(mock_llms):
         "context": "Standard context"
     }
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "test_thread"}})
-    assert "OpenAI block!" in res["messages"][-1]
+    assert "OpenAI block!" in getattr(res["messages"][-1], "content", res["messages"][-1])
 
 @pytest.mark.asyncio
 async def test_openai_hallucination_fallback(mock_llms):
@@ -175,4 +177,33 @@ async def test_openai_hallucination_fallback(mock_llms):
         "context": "No details available."
     }
     res = await compiled.ainvoke(state, config={"configurable": {"thread_id": "test_thread"}})
-    assert "OpenAI hallucination block!" in res["messages"][-1]
+    assert "OpenAI hallucination block!" in getattr(res["messages"][-1], "content", res["messages"][-1])
+
+@pytest.mark.asyncio
+async def test_system_context_in_hallucination(mock_llms):
+    config = GuardrailConfig(
+        outbound_provider=GuardrailProvider.OLLAMA,
+        eval_model="llama3.1:8b",
+        check_hallucination=True,
+        system_context="Allowed Tools: tool_a, tool_b"
+    )
+    from graph_abstract.guardrails import GuardrailValidator
+    from unittest.mock import MagicMock, patch
+    validator = GuardrailValidator(config)
+    messages_captured = []
+    class CaptureStructuredLLM:
+        def invoke(self, messages, *args, **kwargs):
+            messages_captured.append(messages)
+            return HallucinationCheckResult(hallucination=False, reason="grounded")
+        async def ainvoke(self, messages, *args, **kwargs):
+            messages_captured.append(messages)
+            return HallucinationCheckResult(hallucination=False, reason="grounded")
+    with patch.object(validator, "_get_llm") as mock_get_llm:
+        mock_llm_instance = MagicMock()
+        mock_llm_instance.with_structured_output.return_value = CaptureStructuredLLM()
+        mock_get_llm.return_value = mock_llm_instance
+        await validator.check_hallucination_async("human asks query", "response text")
+    assert len(messages_captured) == 1
+    user_msg_content = messages_captured[0][1]["content"]
+    assert "Allowed Tools: tool_a, tool_b" in user_msg_content
+    assert "human asks query" in user_msg_content

@@ -116,7 +116,9 @@ workflow = StateGraph(
 )
 ```
 
-### Config Options
+### Guardrail Configuration Options
+
+When configuring `GuardrailConfig`, the following options are available:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -128,4 +130,30 @@ workflow = StateGraph(
 | `check_hallucination` | `bool` | `False` | Enable outbound hallucination check comparing node outputs to graph context. |
 | `redact_pii` | `bool` | `False` | Enable local regex-based redaction of emails, credit cards, SSNs, and phone numbers. |
 | `fallback_message` | `Optional[str]` | `"I cannot answer..."` | The message returned when a guardrail is tripped. Set to `None` to raise a `GuardrailValidationError` instead. |
+
+### StateGraph Configuration Options
+
+When instantiating `StateGraph`, the following parameters are available:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `fallback_message` | `str` | `"An unexpected error occurred..."` | Fallback message returned to state and routed to `END` on roadblock errors. |
+| `default_timeout` | `Optional[Any]` | `None` | Default execution timeout for async nodes. |
+| `hitl` | `bool` | `False` | Enable human-in-the-loop tool execution approvals. |
+| `interrupt_on` | `Any` | `None` | Specific tools that require approval (list, dictionary, or `True`/`None` for all). |
+
+---
+
+## Fault Tolerance & Node Controls
+
+By default, every node registered in `StateGraph` is wrapped with a retry policy of `max_attempts=3`. 
+If all retries are exhausted (hitting a roadblock error), the state is updated with the `fallback_message`, and execution gracefully transitions to `END`.
+
+---
+
+## Human in the Loop (HITL)
+
+When `hitl=True` is enabled, tool execution will be automatically paused using LangGraph's native `interrupt()` primitive.
+
+To resume execution with user approval, call the graph's invoke or ainvoke with `Command(resume="approve")`. To reject tool execution, resume with `Command(resume="reject")` which will cancel the tool calls and route execution back to the supervisor node.
 

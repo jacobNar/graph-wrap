@@ -28,9 +28,8 @@ class PostgresTelemetryHandler(AsyncCallbackHandler):
                         "INSERT INTO agent_logs (thread_id, event_name, payload) VALUES (%s, %s, %s::jsonb)",
                         (self.thread_id, event_name, serialized_payload)
                     )
-        except Exception as e:
-            with open("graph_abstract_errors.log", "a") as f:
-                f.write(f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} - Telemetry Error: {str(e)}\n")
+        except Exception:
+            pass
 
     async def on_chain_start(
         self,
@@ -225,9 +224,8 @@ class SyncPostgresTelemetryHandler(BaseCallbackHandler):
                         "INSERT INTO agent_logs (thread_id, event_name, payload) VALUES (%s, %s, %s::jsonb)",
                         (self.thread_id, event_name, serialized_payload)
                     )
-        except Exception as e:
-            with open("graph_abstract_errors.log", "a") as f:
-                f.write(f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} - Telemetry Error (Sync): {str(e)}\n")
+        except Exception:
+            pass
 
     def on_chain_start(
         self,
